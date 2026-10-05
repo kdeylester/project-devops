@@ -1,0 +1,152 @@
+- name: Deploy SonarQube with Nginx Reverse Proxy and HTTPS
+  hosts: master02            
+  become: true
+
+  vars_files:
+    - ../vars/sonarqube-info.yaml   
+
+  tasks:
+
+    - name: Set vm.max_map_count
+      ansible.posix.sysctl:
+        name: vm.max_map_count
+        value: "262144"
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: Set fs.file-max
+      ansible.posix.sysctl:
+        name: fs.file-max
+        value: "65536"
+        sysctl_set: true
+        state: present
+        reload: true
+
+    # --- DOCKER RESOURCES ---
+    - name: Create Docker network
+      community.docker.docker_network:
+        name: sonar_network
+
+    - name: Create volumes
+      community.docker.docker_volume:
+        name: "{{ item }}"
+      loop:
+        - sonar_postgres_data
+        - sonarqube_data
+        - sonarqube_extensions
+        - sonarqube_logs
+
+    - name: Run PostgreSQL container
+      community.docker.docker_container:
+        name: sonar_db
+        image: "{{ postgres_image }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: sonar_network
+        env:
+          POSTGRES_USER: sonar
+          POSTGRES_PASSWORD: "{{ sonar_db_password }}"
+          POSTGRES_DB: sonar
+        volumes:
+          - sonar_postgres_data:/var/lib/postgresql/data
+      no_log: true
+
+    - name: Wait until PostgreSQL accepts connections
+      ansible.builtin.command: docker exec sonar_db pg_isready -U sonar
+      register: pg_ready
+      until: pg_ready.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    - name: Run SonarQube container
+      community.docker.docker_container:
+        name: sonarqube
+        image: "{{ sonarqube_image }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: sonar_network
+        published_ports:
+          - "127.0.0.1:9000:9000"   # only nginx on the host can reach it
+        env:
+          SONAR_JDBC_URL: jdbc:postgresql://sonar_db:5432/sonar
+          SONAR_JDBC_USERNAME: sonar
+          SONAR_JDBC_PASSWORD: "{{ sonar_db_password }}"
+        volumes:
+          - sonarqube_data:/opt/sonarqube/data
+          - sonarqube_extensions:/opt/sonarqube/extensions
+          - sonarqube_logs:/opt/sonarqube/logs
+      no_log: true
+
+    # --- NGINX + CERTBOT ---
+    - name: Install nginx and certbot
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: true
+
+    - name: Remove default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Write nginx config for SonarQube
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/sonarqube
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain_name }};
+
+              # Scanner analysis reports can be large
+              client_max_body_size 100M;
+
+              location / {
+                  proxy_pass http://127.0.0.1:9000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_http_version 1.1;
+                  proxy_read_timeout 300s;
+                  proxy_send_timeout 300s;
+              }
+          }
+      notify: Reload nginx
+
+    - name: Enable SonarQube site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/sonarqube
+        dest: /etc/nginx/sites-enabled/sonarqube
+        state: link
+      notify: Reload nginx
+
+    - name: Make sure nginx is running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Flush handlers so nginx is configured before certbot
+      ansible.builtin.meta: flush_handlers
+
+    - name: Get HTTPS certificate (only runs once)
+      ansible.builtin.command: >
+        certbot --nginx -d {{ domain_name }}
+        --non-interactive --agree-tos -m {{ acme_email }} --redirect
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

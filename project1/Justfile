@@ -1,0 +1,16 @@
+#!/bin/bash
+
+ping-all:
+    ansible -m ping all
+
+create-instance:
+    ansible-playbook playbook/IAC/create-instance.yaml
+    ansible-playbook playbook/install-docker.yaml
+    ansible-playbook playbook/install-jenkins.yaml
+    ansible-playbook playbook/install-nexus.yaml
+    ansible-playbook playbook/install-sonarqube.yaml
+
+delete-instance:
+    ansible-playbook playbook/IAC/delete-instance.yaml
+
+

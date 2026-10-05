@@ -1,0 +1,100 @@
+- name: Deploy Nexus with Nginx Reverse Proxy and HTTPS
+  hosts: master03
+  become: true
+
+  vars_files:
+    - ../vars/nexus-info.yaml
+
+
+  tasks:
+    - name: Create Nexus data directory (Nexus runs as uid 200)
+      ansible.builtin.file:
+        path: "{{ nexus_data_dir }}"
+        state: directory
+        owner: "200"
+        group: "200"
+        mode: "0755"
+
+    - name: Run Nexus container
+      community.docker.docker_container:
+        name: nexus_container
+        image: "sonatype/nexus3:{{ nexus_version }}"
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "127.0.0.1:8081:8081"   # only nginx on the host can reach it
+        volumes:
+          - "{{ nexus_data_dir }}:/nexus-data"
+
+    - name: Install nginx and certbot
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: true
+
+    - name: Remove default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Write nginx config for Nexus
+      ansible.builtin.copy:
+        dest: /etc/nginx/sites-available/nexus
+        mode: "0644"
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain_name }};
+
+              # Allow large uploads (Docker images / artifacts)
+              client_max_body_size 1G;
+
+              location / {
+                  proxy_pass http://127.0.0.1:8081;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_http_version 1.1;
+                  proxy_request_buffering off;
+                  proxy_send_timeout 120s;
+                  proxy_read_timeout 120s;
+                  proxy_buffer_size 128k;
+                  proxy_buffers 4 256k;
+                  proxy_busy_buffers_size 256k;
+              }
+          }
+      notify: Reload nginx
+
+    - name: Enable Nexus site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus
+        dest: /etc/nginx/sites-enabled/nexus
+        state: link
+      notify: Reload nginx
+
+    - name: Make sure nginx is running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Flush handlers so nginx is configured before certbot
+      ansible.builtin.meta: flush_handlers
+
+    - name: Get HTTPS certificate (only runs once)
+      ansible.builtin.command: >
+        certbot --nginx -d {{ domain_name }}
+        --non-interactive --agree-tos -m {{ acme_email }} --redirect
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

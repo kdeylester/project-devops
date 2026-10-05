@@ -1,0 +1,66 @@
+- name: Create GCP Instance 
+  hosts: localhost
+  become: true 
+  vars_files:
+    - ../../vars/machine-info.yaml
+  vars:
+    base_path: "/home/phalpheapheakdey/project2"
+    project_path: "{{ base_path }}"
+    kubespray_path: "{{ project_path }}/kubespray"
+    
+  tasks: 
+  - name: Slurp the local public key
+    slurp: 
+      src: "{{ ssh_public_key }}" 
+    register: ssh_pub_key
+
+  - name: Create GCP instance
+    google.cloud.gcp_compute_instance:
+      name: "{{ item.name}}"
+      machine_type: "{{item.machine_type}}"
+      zone: "{{item.zone}}"
+      project: "{{google_project_id}}"
+      auth_kind: application
+      state: present # create machine 
+      metadata:
+        ssh-keys: "phalpheapheakdey:{{ ssh_pub_key['content'] | b64decode }}"
+        startup-script: |
+          #!/bin/bash 
+          sudo apt-get update && sudo apt-get upgrade -y 
+      disks:
+        - auto_delete: true
+          boot: true
+          initialize_params:
+            source_image: "{{item.image}}"
+            disk_size_gb: "{{item.disk_size}}"
+            disk_type: "{{item.disk_type}}"
+      network_interfaces:
+        - network:
+            selfLink: "projects/{{google_project_id}}/global/networks/default"
+          access_configs:
+            - name: External NAT
+              type: ONE_TO_ONE_NAT
+      tags:
+        items:
+          - http-server
+          - https-server
+    register: gcp_instances
+    when: item.name in ["node1", "node2", "node3"]
+    environment: 
+        GOOGLE_APPLICATION_CREDENTIALS: "{{ adc_path }}"
+        GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES: "1"
+    loop: "{{ machines_info }}"
+  # used for debug 
+  - name: Write gcp_instance into json file
+    copy:
+      content: "{{ gcp_instances }}"
+      dest: "./gcp_instances.json"
+    when: true 
+  - name: Update Inventory using jinjar 
+    template: 
+      src: ../../template/instance.j2
+      dest: ../../inventory.ini 
+
+  # install config kubespray
+  - name: Install and Setup Kubernetes
+    ansible.builtin.import_tasks: ../../vars/until_tasks.yaml

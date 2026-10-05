@@ -1,0 +1,5 @@
+acme_email: kdeylester@gmail.com
+sonarqube_image: sonarqube:community
+postgres_image: postgres:16
+domain_name: sonarqube.kdey.me
+sonar_db_password: "168"

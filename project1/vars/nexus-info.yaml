@@ -1,0 +1,6 @@
+domain_name: "nexus.kdey.me"            
+nexus_version: "3.70.0"
+nexus_data_dir: "/opt/nexus-data"
+nginx_config_dir: "/opt/nginx-config"
+ssl_cert_dir: "/opt/nginx-ssl"
+acme_email: kdeylester@gmail.com

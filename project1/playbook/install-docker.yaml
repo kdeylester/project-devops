@@ -1,0 +1,9 @@
+- name: Install Docker on all hosts
+  hosts: masters
+  become: true
+
+  vars_files:
+    - ../vars/docker-user.yaml
+
+  roles:
+    - role: geerlingguy.docker

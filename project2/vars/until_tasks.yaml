@@ -1,0 +1,51 @@
+# Tasks where we install packages and configure Kubespray
+
+- name: Install YQ
+  ansible.builtin.apt:
+    name: yq
+    state: present
+
+- name: Clone Kubespray
+  become: false
+  ansible.builtin.git:
+    repo: "https://github.com/kubernetes-sigs/kubespray.git"
+    dest: "{{ kubespray_path }}"
+    update: false
+
+- name: Configure Kubespray addons
+  ansible.builtin.command:
+    cmd: >-
+      yq -yi
+      '.helm_enabled = true |
+       .registry_enabled = true |
+       .cert_manager_enabled = true |
+       .argocd_enabled = true'
+      {{ kubespray_path }}/inventory/sample/group_vars/k8s_cluster/addons.yml
+
+- name: Update Kubespray Inventory using Jinja2
+  ansible.builtin.template:
+    src: ../../template/kubespray.j2
+    dest: "{{ kubespray_path }}/inventory/sample/inventory.ini"
+
+- name: Install Python 3.14 venv
+  ansible.builtin.apt:
+    name: python3.14-venv
+    state: present
+    update_cache: true
+
+- name: Create Python 3.14 virtual environment
+  ansible.builtin.command:
+    cmd: "python3.14 -m venv {{ kubespray_path }}/.venv"
+    creates: "{{ kubespray_path }}/.venv/bin/python"
+
+- name: Install Kubespray Python dependencies
+  ansible.builtin.command:
+    cmd: "{{ kubespray_path }}/.venv/bin/python -m pip install -r {{ kubespray_path }}/requirements.txt"
+
+- name: Run Kubespray Ansible Playbook
+  command: >
+    {{ kubespray_path }}/.venv/bin/ansible-playbook
+    -i {{ kubespray_path }}/inventory/sample/inventory.ini
+    {{ kubespray_path }}/cluster.yml -b
+  args:
+    chdir: "{{ kubespray_path }}"

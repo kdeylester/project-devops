@@ -1,0 +1,12 @@
+#!/bin/bash
+
+ping-all:
+    ansible -m ping all
+
+create-instance:
+    ansible-playbook playbook/IAC/create-instance.yaml
+    
+delete-instance:
+    ansible-playbook playbook/IAC/delete-instance.yaml
+
+
