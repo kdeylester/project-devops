@@ -1,0 +1,25 @@
+---
+- name: Install Traefik on Kubernetes Cluster
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: Create traefik namespace
+      ansible.builtin.command:
+        cmd: kubectl create namespace traefik
+      register: namespace_result
+      failed_when:
+        - namespace_result.rc != 0
+        - "'AlreadyExists' not in namespace_result.stderr"
+
+    - name: Add Traefik Helm repository
+      ansible.builtin.command:
+        cmd: helm repo add traefik https://traefik.github.io/charts
+
+    - name: Update Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Install Traefik
+      ansible.builtin.command:
+        cmd: helm install traefik traefik/traefik -n traefik -f traefik-worker-values.yaml

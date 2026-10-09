@@ -1,6 +1,6 @@
 # Tasks where we install packages and configure Kubespray
-
 - name: Install YQ
+  become: true
   ansible.builtin.apt:
     name: yq
     state: present
@@ -9,43 +9,66 @@
   become: false
   ansible.builtin.git:
     repo: "https://github.com/kubernetes-sigs/kubespray.git"
-    dest: "{{ kubespray_path }}"
+    dest: "/home/phalpheapheakdey/project-devops/project2/kubespray/"
     update: false
 
 - name: Configure Kubespray addons
+  become: false
   ansible.builtin.command:
     cmd: >-
       yq -yi
       '.helm_enabled = true |
-       .registry_enabled = true |
        .cert_manager_enabled = true |
+       .local_path_provisioner_enabled = true |
+       .local_volume_provisioner_enabled = true |
        .argocd_enabled = true'
-      {{ kubespray_path }}/inventory/sample/group_vars/k8s_cluster/addons.yml
+       /home/phalpheapheakdey/project-devops/project2/kubespray/inventory/sample/group_vars/k8s_cluster/addons.yml
+  changed_when: false
 
 - name: Update Kubespray Inventory using Jinja2
+  become: false
   ansible.builtin.template:
     src: ../../template/kubespray.j2
-    dest: "{{ kubespray_path }}/inventory/sample/inventory.ini"
+    dest: "/home/phalpheapheakdey/project-devops/project2/kubespray/inventory/sample/inventory.ini"
 
 - name: Install Python 3.14 venv
+  become: true
   ansible.builtin.apt:
     name: python3.14-venv
     state: present
     update_cache: true
 
 - name: Create Python 3.14 virtual environment
+  become: false
   ansible.builtin.command:
-    cmd: "python3.14 -m venv {{ kubespray_path }}/.venv"
-    creates: "{{ kubespray_path }}/.venv/bin/python"
+    cmd: "python3.14 -m venv /home/phalpheapheakdey/project-devops/project2/kubespray/.venv"
+    creates: "/home/phalpheapheakdey/project-devops/project2/kubespray/.venv/bin/python"
 
-- name: Install Kubespray Python dependencies
+- name: Upgrade pip
+  become: false
   ansible.builtin.command:
-    cmd: "{{ kubespray_path }}/.venv/bin/python -m pip install -r {{ kubespray_path }}/requirements.txt"
+    cmd: "/home/phalpheapheakdey/project-devops/project2/kubespray/.venv/bin/python -m pip install --upgrade pip"
+  changed_when: false
+
+- name: Install Kubespray requirements
+  become: false
+  ansible.builtin.pip:
+    requirements: /home/phalpheapheakdey/project-devops/project2/kubespray/requirements.txt
+    virtualenv: /home/phalpheapheakdey/project-devops/project2/kubespray/.venv
 
 - name: Run Kubespray Ansible Playbook
-  command: >
-    {{ kubespray_path }}/.venv/bin/ansible-playbook
-    -i {{ kubespray_path }}/inventory/sample/inventory.ini
-    {{ kubespray_path }}/cluster.yml -b
-  args:
-    chdir: "{{ kubespray_path }}"
+  become: false
+  ansible.builtin.command:
+    cmd: >
+      /home/phalpheapheakdey/project-devops/project2/kubespray/.venv/bin/ansible-playbook
+      -i /home/phalpheapheakdey/project-devops/project2/kubespray/inventory/sample/inventory.ini
+      /home/phalpheapheakdey/project-devops/project2/kubespray/cluster.yml
+      -b
+    chdir: "/home/phalpheapheakdey/project-devops/project2/kubespray"
+
+- name: Config Kubernetes without sudo 
+  ansible.builtin.command:
+    cmd: >
+      mkdir -p ~/.kube
+      sudo cp -i /etc/kubernetes/admin.conf ~/.kube/config
+      sudo chown $(id -u):$(id -g) ~/.kube/config

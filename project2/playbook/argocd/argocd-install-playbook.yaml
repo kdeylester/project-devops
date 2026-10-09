@@ -1,0 +1,21 @@
+---
+- name: Expose Argo CD on its domain
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: Apply Ingress for Argo CD
+      ansible.builtin.command:
+        cmd: kubectl apply -f argocd-ingress-route.yaml
+
+    - name: Apply server transport for Argo CD
+      ansible.builtin.command:
+        cmd: kubectl apply -f argocd-server-transport.yaml
+    
+    - name: Patch TLS for Argo CD
+      ansible.builtin.command:
+        cmd: >
+          kubectl patch configmap argocd-cmd-params-cm \
+          -n argocd \
+          --type merge \
+          -p '{"data":{"server.insecure":"true"}}'

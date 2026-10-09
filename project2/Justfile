@@ -9,4 +9,12 @@ create-instance:
 delete-instance:
     ansible-playbook playbook/IAC/delete-instance.yaml
 
+install-headlamp:
+    ansible-playbook  playbook/headlamp/headlamp-install-playbook.yaml
+
+install-traefik:
+    ansible-playbook playbook/traefik/traefik-install-playbook.yaml
+
+install-argocd:
+    ansible-playbook playbook/argocd/argocd-install-playbook.yaml
 

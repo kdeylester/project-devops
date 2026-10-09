@@ -1,0 +1,33 @@
+---
+- name: Install headlamp on Kubernetes Cluster
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: Create headlamp namespace
+      ansible.builtin.command:
+        cmd: kubectl create namespace headlamp
+      register: namespace_result
+      failed_when:
+        - namespace_result.rc != 0
+        - "'AlreadyExists' not in namespace_result.stderr"
+
+    - name: Add Headlamp Helm repository
+      ansible.builtin.command:
+        cmd: helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/
+
+    - name: Update Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Install Headlamp
+      ansible.builtin.command:
+        cmd: helm install headlamp headlamp/headlamp -n headlamp
+    
+    - name: Apply Domain name to headlamp service
+      ansible.builtin.command:
+        cmd: kubectl apply -f prod-clusterissuer.yaml -n headlamp
+
+    - name: Apply Ingress for headlamp
+      ansible.builtin.command:
+        cmd: kubectl apply -f headlamp-ingress.yaml -n headlamp
